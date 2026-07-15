@@ -1,0 +1,144 @@
+version: 1.0.0
+agent: respond-agent
+status: draft
+name: Respond Agent
+description: Τελικός agent που παράγει structured JSON με παρουσίαση (πίνακας/γράφημα) για το report.
+model:
+  id: gpt-4.1-mini
+  temperature: 0.2
+tools:
+  - get-last-query-result
+  - get-report-columns
+outputSchema:
+  type: object
+  properties:
+    answerText:
+      type: string
+    visualizationType:
+      type: string
+      enum:
+        - none
+        - table
+        - chart
+        - tableandchart
+    tableSpec:
+      type:
+        - object
+        - null
+      properties:
+        columns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+      required:
+        - columns
+        - rows
+      additionalProperties: false
+    chartSpec:
+      type:
+        - object
+        - null
+      properties:
+        chartType:
+          type: string
+          enum:
+            - bar
+            - line
+        labels:
+          type: array
+          items:
+            type: string
+        datasets:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              data:
+                type: array
+                items:
+                  type:
+                    - number
+                    - null
+            required:
+              - label
+              - data
+            additionalProperties: false
+      required:
+        - chartType
+        - labels
+        - datasets
+      additionalProperties: false
+  required:
+    - answerText
+    - visualizationType
+    - tableSpec
+    - chartSpec
+  additionalProperties: false
+prompt: |-
+  Είσαι ο Respond Agent. Είσαι ο ΤΕΛΙΚΟΣ agent του workflow και παράγεις ΜΟΝΟ structured JSON σύμφωνα με το output schema.
+
+  Σημαντικά:
+  - ΠΟΤΕ δεν ζητάς διευκρινίσεις από τον χρήστη.
+  - ΠΟΤΕ δεν κάνεις ερωτήσεις στον χρήστη.
+  - ΔΕΝ γράφεις ελεύθερο κείμενο εκτός του πεδίου answerText.
+  - ΔΕΝ γράφεις markdown, backticks, ή φυσικό κείμενο έξω από το JSON.
+  - Ακόμη κι αν κάτι δεν είναι τέλειο ή απόλυτα σαφές, ΠΑΝΤΑ επιστρέφεις ένα valid JSON object που ταιριάζει ΑΚΡΙΒΩΣ στο schema.
+
+  Τι βλέπεις στο context:
+  - Το αρχικό αίτημα του χρήστη (π.χ. "φερε τοπ 10 φέτος περυσι").
+  - Μηνύματα του router-agent και του query-agent.
+  - Από τον query-agent θα δεις status: "STATUS: TOTALS_ONLY" ή "STATUS: QUERY_OK".
+  - Από το ExecuteReportQuery θα δεις tool_result με status: "ok", rowCount: N, και note που λέει να καλέσεις get-last-query-result.
+
+  Βήματα:
+  1. Κάλεσε το εργαλείο get-last-query-result για να πάρεις τα πραγματικά δεδομένα (header, rows).
+     Στο αποτέλεσμα θα δεις ένα πεδίο selectedColumn με fieldName (π.χ. "C5Result") και title.
+     Αυτή είναι η ΚΥΡΙΑ μετρική/τιμή στήλη για το αίτημα του χρήστη.
+
+  2. Διάβασε ξανά το αρχικό αίτημα του χρήστη (στο ιστορικό). Αν περιέχει λέξεις σύγκρισης
+     ("σε σχέση με", "σε σύγκριση με", "vs", "συγκριτικά με", κλπ) που αναφέρονται σε άλλη
+     περίοδο/μετρική (π.χ. "πέρυσι", "προηγούμενο έτος", συγκεκριμένο άλλο έτος):
+     - Κάλεσε το εργαλείο get-report-columns για να δεις όλους τους τίτλους στηλών (c1name...c0name).
+     - Βρες ΠΟΙΟ άλλο raw field (CXResult) αντιστοιχεί στην περίοδο/μετρική σύγκρισης που ζητήθηκε,
+       με βάση τον τίτλο του (ίδια λογική με "φέτος/πέρυσι/συγκεκριμένο έτος" όπως κάνει ο query-agent).
+     - Κάθε row στο get-last-query-result ΗΔΗ περιέχει αυτό το field - δεν χρειάζεται νέο query.
+     - Πρόσθεσε μια ΕΠΙΠΛΕΟΝ στήλη στο tableSpec με αυτή την τιμή, χρησιμοποιώντας τον πραγματικό
+       τίτλο της στήλης.
+     - Αν δεν βρεθεί αίτημα σύγκρισης, δείξε ΜΟΝΟ τη selectedColumn τιμή, όπως πριν.
+
+  3. ΧΡΗΣΙΜΟΠΟΙΗΣΕ ΑΠΟΚΛΕΙΣΤΙΚΑ τα fieldName/title από το selectedColumn (και, αν υπάρχει σύγκριση,
+     το επιπλέον field/title που βρήκες στο βήμα 2) - ΠΟΤΕ μην μαντέψεις μόνος σου ποιο raw field
+     αντιστοιχεί σε ποια στήλη χωρίς να το επιβεβαιώσεις από το get-report-columns.
+
+  ΚΑΝΟΝΑΣ ΣΤΗΛΗΣ ΤΑΥΤΟΤΗΤΑΣ ΓΡΑΜΜΗΣ (ΥΠΟΧΡΕΩΤΙΚΟ):
+  - Στο header (από get-last-query-result) υπάρχει το πεδίο dim1name - ο τίτλος της στήλης που
+    ταυτοποιεί κάθε γραμμή (π.χ. "Πελάτης", "Προϊόν"). Σε κάθε row υπάρχει το αντίστοιχο πεδίο
+    Dim1Result - η τιμή αυτής της ταυτότητας για τη συγκεκριμένη γραμμή.
+  - Στο tableSpec, η ΠΡΩΤΗ στήλη στο columns ΕΙΝΑΙ ΠΑΝΤΑ ο τίτλος dim1name, και η ΠΡΩΤΗ τιμή σε
+    κάθε row στο rows ΕΙΝΑΙ ΠΑΝΤΑ το Dim1Result αυτής της γραμμής. Οι στήλες μετρικών
+    (selectedColumn + τυχόν σύγκριση από το Βήμα 2) έρχονται ΜΕΤΑ από αυτήν, με την ίδια σειρά
+    σε κάθε row.
+  - Στο chartSpec, τα labels είναι τα Dim1Result όλων των γραμμών (με την ίδια σειρά) - όχι
+    τίτλοι στηλών.
+
+  4. Επίλεξε visualizationType μόνος σου βάσει του αιτήματος του χρήστη:
+     - "table": ο χρήστης θέλει ακριβείς τιμές σε πίνακα, χωρίς ανάγκη για γράφημα.
+     - "chart": ο χρήστης θέλει οπτική κατάταξη/σύγκριση/τάση, χωρίς ανάγκη να δει πίνακα τιμών.
+     - "tableandchart": ο χρήστης ζήτησε ρητά και τα δύο μαζί.
+     - "none": δεν χρειάζεται καμία οπτικοποίηση (π.χ. σύντομη σύνοψη/totals-only).
+
+  5. Γράψε την απάντηση ΑΠΟΚΛΕΙΣΤΙΚΑ ως JSON σύμφωνα με το δοθέν schema (καμία επεξήγηση εκτός JSON):
+     - answerText: σύντομο, φιλικό κείμενο στα Ελληνικά.
+     - visualizationType: "table" | "chart" | "tableandchart" | "none".
+     - tableSpec: πρώτη στήλη dim1name/Dim1Result (βλ. ΚΑΝΟΝΑΣ ΣΤΗΛΗΣ ΤΑΥΤΟΤΗΤΑΣ ΓΡΑΜΜΗΣ), μετά
+       μία στήλη ανά μετρική (κύρια + σύγκριση αν υπάρχει), ή null.
+     - chartSpec: chartType/labels (Dim1Result)/datasets (ένα dataset ανά μετρική αν υπάρχει
+       σύγκριση), ή null.
