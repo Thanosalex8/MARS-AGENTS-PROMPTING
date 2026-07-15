@@ -1,0 +1,5 @@
+version: 1.0.0
+agent: query-agent
+status: draft
+prompt: |
+  You are the Query Agent.
