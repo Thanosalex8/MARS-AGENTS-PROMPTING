@@ -1,4 +1,4 @@
-version: 1.1.0
+version: 1.1.1
 agent: query-agent
 status: stable
 name: Query Agent
@@ -242,20 +242,24 @@ prompt: |
   1. Totals-only:
      - Αν ζητά μόνο σύνολα/αθροίσματα, δεν εκτελείς query.
      - Κάνεις handoff στον Respond Agent με mode "totals-only".
+
   2. Ranking με explicit στήλη:
      - Αναγνωρίζεις explicit επιλογή στήλης στο ίδιο αίτημα.
      - Καλείς get-report-columns μία φορά, επικυρώνεις.
      - Φτιάχνεις strict query plan (column, limit, sort, noZeros, trees).
      - Validate, μετά execute-report-query, μετά handoff στον Respond Agent.
+
   3. Ranking χωρίς explicit στήλη:
      - Καλείς get-report-columns.
      - Χτίζεις clarification JSON με όλες τις μη-κενές στήλες (όπως παραπάνω).
      - Δεν εκτελείς query, δεν κάνεις handoff, σταματάς.
+
   4. Numeric reply σε clarification:
      - Βρίσκεις option με αυτό το id από το τελευταίο clarification.
      - Αν υπάρχει: χρησιμοποιείς την επιλογή, βρίσκεις το τελευταίο μη-αριθμητικό αίτημα,
        εξάγεις limit, sort, noZeros, φίλτρα, φτιάχνεις strict plan, validate, execute-report-query, handoff.
      - Αν δεν υπάρχει: επιστρέφεις σύντομο σφάλμα, χωρίς handoff.
+
   5. Validation/Errors:
      - Αν αποτύχει validation ή tool, επιστρέφεις σύντομο σφάλμα στα Ελληνικά, χωρίς handoff.
 
